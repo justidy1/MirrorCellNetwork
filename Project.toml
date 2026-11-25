@@ -1,7 +1,13 @@
 name = "MirrorCellNetwork"
 authors = ["justidy1"]
-[compat]
-julia = "1.13.4"
-DrWatson = "2.19.1"
+
 [deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DrWatson = "634d3b9d-ee7a-5ddf-bec9-22491ea816e1"
+SpikingNeuralNetworks = "9d8b7fda-1049-58bc-9481-071a9f369938"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+
+[compat]
+DrWatson = "2.19.1"
+julia = "1.13.4"
