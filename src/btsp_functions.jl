@@ -4,7 +4,6 @@ SNN.@load_units
 @eval SNN.SNNModels begin
 
     abstract type BTSPParameter <: LTPParameter end
-    
     ###
     #Madar, Antoine D., et al. 
     #"Synaptic plasticity rules driving representational shifting in the hippocampus." 
@@ -106,56 +105,3 @@ function btsp_test(btsp_param; ΔT)
 
     return syn.W[1]-1
 end
-
-# milstein like place cell network (Madar et al. 2025 Fig3/S13A)
-# params from Table S1
-
-# rate of place field centered at x0
-function gaussian_pf(x,x0,peak_f=10*Hz,σ=18*cm)
-    return peak_f*exp(-(x-x0)^2 / (2*σ^2))
-end
-
-vel = 15*(cm/s)
-total_track_len = 300*cm
-x0s = LinRange(0,300,100)*cm
-
-vs =  [Dict{Symbol,Any}(:vel => vel,:x0 => x0,:L => total_track_len) for x0 in x0s]
-
-pf_r(t,v) = gaussian_pf(mod(t*v[:vel],v[:L]),v[:x0])
-
-E = SNN.IF(N = 1,param = SNN.IFParameter(R = 100*MΩ,
-            τm=20*ms,Vt=-54*mV),
-        synapse = SNN.DeltaSynapse())#SNN.CurrentSynapse(τe = 10ms))
-Ids = SNN.Identity(N=100)
-pf_params = [SNN.PoissonVariable(variables = v,rate=pf_r) for v in vs]
-stims = [SNN.Stimulus(param, Ids, :ge, neurons = [i]) for (i,param) in enumerate(pf_params)]
-
-W_init = reshape(85.0.*exp.(-(vec(1:100).-50).^2 ./ (2*10^2)),1,100)
-syn = SNN.SNNModels.SpikingSynapse(Ids, E, :ge; conn = W_init*pA, LTPParam =  SNN.SNNModels.BTSPMadar(p_CS=0.005,W_max=1000*pA))
-norm = SNN.SynapseNormalization([syn]; param = SNN.MultiplicativeNorm(τ = 1s))
-
-SNN.monitor!([E,Ids], :fire)
-SNN.monitor!(E, :v,sr=100Hz)
-SNN.monitor!(syn, [:pre_trace,:post_trace]; sr = 20Hz,variables=:LTPVars)
-SNN.train!(model = SNN.compose(; E, Ids, stims,syn,norm,silent=true), duration = 600*s,dt=10*ms)
-
-using CairoMakie
-
-interval = 0:500ms:600s 
-fr, r = SNN.bin_spiketimes(E;interval)
-fr = fr*2
-
-spike_pos = mod.((SNN.spiketimes(E)[1])*vs[1][:vel],vs[1][:L])
-spike_lap = floor.(SNN.spiketimes(E)[1]/20s)
-
-fig = Figure()
-ax1 = Axis(fig[1,1])
-ax2 = Axis(fig[2,1])
-ax3 = Axis(fig[3,1])
-ax_scatter = Axis(fig[:,2],limits=(0,300,nothing,nothing))
-SNN.vecplot!(ax1,E,:v,add_spikes=true)
-lines!(ax2,r/1000,vec(fr))
-SNN.vecplot!(ax3,syn,:LTPVars_post_trace)
-scatter!(ax_scatter,spike_pos,spike_lap,markersize=4)
-#SNN.raster!(ax,E,markersize=10)
-fig
