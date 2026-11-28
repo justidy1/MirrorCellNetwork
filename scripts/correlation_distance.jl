@@ -95,8 +95,8 @@ function multiple_CS_trained_IF(W_init,cs_times;
 end
 
 params = Dict(
-    "W_init" => collect(1:10:50),
-    "A_BTSP" => collect(5:10:50),
+    "W_init" => collect(1:1:50),
+    "A_BTSP" => collect(5:1:50),
     "ts_CS" => [[10*s,30*s]]
 )
 dicts = dict_list(params)
