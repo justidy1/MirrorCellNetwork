@@ -56,7 +56,7 @@ function multiple_CS(t_stims,w_init,A_BTSP;
 end
 
 function multiple_CS_trained_IF(W_init,cs_times; 
-    N_CA3 = 600,sim_duration=40*s,dt=10*ms,vel = 15*(cm/s), L_tl = 600, CA3_pf_peak_rate = 10*Hz,CA3_pf_σ = 18*cm)
+    N_CA3 = 600,sim_duration=40*s,dt=1*ms,vel = 15*(cm/s), L_tl = 600, CA3_pf_peak_rate = 10*Hz,CA3_pf_σ = 18*cm)
     # rate of place field centered at x0
     function gaussian_pf(x,x0,peak_f=CA3_pf_peak_rate,σ=CA3_pf_σ)
         return peak_f*exp(-(x-x0)^2 / (2*σ^2))
@@ -65,7 +65,7 @@ function multiple_CS_trained_IF(W_init,cs_times;
     Ids_pre = SNN.Identity(N=N_CA3)
     Ids_post = SNN.IF(N=1,param = SNN.IFParameter(R = 100*MΩ,
                 τm=20*ms,Vt=-54*mV),
-            synapse = SNN.DeltaSynapse())
+            synapse = SNN.CurrentSynapse())#SNN.DeltaSynapse())
     
     total_track_len = L_tl*cm
     x0s = LinRange(0,L_tl,Ids_pre.N)*cm
@@ -95,8 +95,8 @@ function multiple_CS_trained_IF(W_init,cs_times;
 end
 
 params = Dict(
-    "W_init" => collect(1:1:50),
-    "A_BTSP" => collect(5:1:50),
+    "W_init" => collect(1:5:50),
+    "A_BTSP" => collect(5:5:85),
     "ts_CS" => [[10*s,30*s]]
 )
 dicts = dict_list(params)
@@ -117,30 +117,53 @@ function make_sim(d::Dict)
 end
 
 for d in dicts
-    produce_or_load(make_sim,d,datadir("sims","ts_CS_IF_simulations"),filename=savename(d))
+    produce_or_load(make_sim,d,datadir("sims","ts_CS_IF_simulations_dt1ms"),filename=savename(d))
 end
 
 using DataFrames
 
-df = coalesce.(collect_results(datadir("sims","ts_CS_IF_simulations")))
+df = coalesce.(collect_results(datadir("sims","ts_CS_IF_simulations_dt1ms")))
 
 w1 = [w[1] for w in df.W_peaks]
 w2 = [w[2] for w in df.W_peaks]
 fr1 = [fr[1] for fr in df.fr_peaks]
 fr2 = [fr[2] for fr in df.fr_peaks]
 
+W_init_sort = sort(unique(df.W_init))
+A_BTSP_sort = sort(unique(df.A_BTSP))
+W1_mat = zeros(length(W_init_sort),length(A_BTSP_sort))
+W2_mat = zeros(length(W_init_sort),length(A_BTSP_sort))
+FR1_mat = zeros(length(W_init_sort),length(A_BTSP_sort))
+FR2_mat = zeros(length(W_init_sort),length(A_BTSP_sort))
+
+for (i,w) in enumerate(W_init_sort)
+    for (j,a) in enumerate(A_BTSP_sort)
+        matching_idx = findfirst((df.W_init .== w) .& (df.A_BTSP .== a))
+        W1_mat[i,j] = w1[matching_idx]
+        W2_mat[i,j] = w2[matching_idx]
+        FR1_mat[i,j] = fr1[matching_idx]
+        FR2_mat[i,j] = fr2[matching_idx]
+    end
+end
+
+using ImageFiltering
+W1_mat = imfilter(W1_mat,Kernel.gaussian(1))
+W2_mat = imfilter(W2_mat,Kernel.gaussian(1))
+FR1_mat = imfilter(FR1_mat,Kernel.gaussian(1))
+FR2_mat = imfilter(FR2_mat,Kernel.gaussian(1))
+
 fig = Figure()
 ax1 = Axis(fig[1,1],aspect=1)
 ax2 = Axis(fig[1,2],aspect=1)
 ax3 = Axis(fig[1,4],aspect=1)
 w_colorrange = (minimum(vcat(df.W_peaks...)),maximum(vcat(df.W_peaks...)))
-hm_w1 = heatmap!(ax1,df.W_init,df.A_BTSP, w1;colorrange = w_colorrange)
-hm_w2 = heatmap!(ax2,df.W_init,df.A_BTSP, w2;colorrange =w_colorrange)
+hm_w1 = heatmap!(ax1,W_init_sort,A_BTSP_sort, W1_mat;colorrange = w_colorrange)
+hm_w2 = heatmap!(ax2,W_init_sort,A_BTSP_sort, W2_mat;colorrange = w_colorrange)
 
 Colorbar(fig[1, 3],
         colorrange = w_colorrange)
 
-hm_DI = heatmap!(ax3,df.W_init,df.A_BTSP, (w2.-w1)./(w2.+w1))
+hm_DI = heatmap!(ax3,W_init_sort,A_BTSP_sort, (W2_mat.-W1_mat)./(W2_mat.+W1_mat);colorrange=(0,1))
 Colorbar(fig[1,5], hm_DI)
 
 linkyaxes!(ax1, ax2)
@@ -154,13 +177,16 @@ ax22 = Axis(fig[2,2],aspect=1)
 ax23 = Axis(fig[2,4],aspect=1)
 
 fr_colorrange = (minimum(vcat(df.fr_peaks...)),maximum(vcat(df.fr_peaks...)))
-hm_fr1 = heatmap!(ax21,df.W_init,df.A_BTSP, fr1)
-hm_fr2 = heatmap!(ax22,df.W_init,df.A_BTSP, fr2)
+hm_fr1 = heatmap!(ax21,W_init_sort,A_BTSP_sort, FR1_mat)
+hm_fr2 = heatmap!(ax22,W_init_sort,A_BTSP_sort, FR2_mat)
 
 Colorbar(fig[2, 3],
         colorrange = fr_colorrange)
 
-hm_fr_DI = heatmap!(ax23,df.W_init,df.A_BTSP, abs.(fr2.-fr1)./(fr2.+fr1))
+is_viable =  Float64.((FR1_mat.>5).*(FR2_mat.>5)).*Float64.((FR1_mat.<=70).*(FR2_mat.<=70))
+is_viable = imfilter(is_viable,Kernel.gaussian(1))
+hm_fr_DI = heatmap!(ax23,W_init_sort,A_BTSP_sort, abs.(FR2_mat.-FR1_mat)./(FR2_mat.+FR1_mat);colorrange=(0,1))
+contour!(ax23,W_init_sort,A_BTSP_sort,is_viable,colormap=Makie.Reverse(:grays),levels=1,colorrange=(0.9,1),linewidth=2)
 Colorbar(fig[2,5], hm_fr_DI)
 
 linkyaxes!(ax21, ax22)
